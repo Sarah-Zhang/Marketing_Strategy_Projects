@@ -1,0 +1,535 @@
+---
+title: "Homework2 Logistic Regression Analysis on NFL Play Data"
+author: "Xuanhui Liao 44592188, Yunchan Sun 47737525, Becca Wernick 47818736, Taowan Yang 44510821, Xiaowen Zhang 47801472"
+date: "Nov. 18 2018"
+output:
+  pdf_document: 
+    fig_height: 3.5
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+#Load Data
+data <- read.csv("C:/Users/rebec/Desktop/MAST 6251 Applied Predictive Analytics I/HW2/NFL.csv")
+```
+
+## Project Overview
+
+In this project, we performed logistic regression analysis on the NFL Play Data to predict whether the home team will win a game. Our dataset contains 102 variables over 362,447 plays over the course of 8 seasons.
+
+We decided to aggregate our data to game level as we are aiming to make predictions for each entire game.  As the raw data combines statistics for the Home and Away teams in the same column, one of the most important elements of our data preparation was to identify the pertinent statistics, and then split those columns into two variables, one for the Home team and one for the Away team. We also made new variables for each type of play, for Home and Away team, for example, home_Type_Pass and home_Type_Run, so that we can aggregate the number of each type of play for each team. Additionally, we created calculated variables, like the pass completion ratio, so that we could evaluate the effect of accuracy of passers on winning a game. For the purpose of modeling, we chose the statistics that we felt had an impact on the game performance.  For example, the statistic, "ydsnet", which displays the net number of yards gained on a play, was split into "home_ydsnet" and "away_ydsnet" and then evaluated at the game level. Also, we excluded all probabilities since we did not want to base our prediction on others' prediction. After data cleaning, we were analyzing 2,048 games across 65 variables.
+
+```{r, include=FALSE}
+# Delect unnecessary columns
+del_cols <- c(1,3,4,6,7,8,10,11,15,18,19,22,24,25,26,27,28,29,31,32,33,35,36,38,39,41,42,43,44,45,46,47,48,49,50,51,52,53,54,58,59,61,62,63,65,66,70,71,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101)
+mydata = subset(data, select = -del_cols)
+# De-Factorized string columns
+mydata$posteam <- as.character(mydata$posteam)
+mydata$PlayType <- as.character(mydata$PlayType)
+mydata$PassOutcome <- as.character(mydata$PassOutcome)
+mydata$FieldGoalResult <- as.character(mydata$FieldGoalResult)
+mydata$PenalizedTeam <- as.character(mydata$PenalizedTeam)
+mydata$HomeTeam <- as.character(mydata$HomeTeam)
+mydata$AwayTeam <- as.character(mydata$AwayTeam)
+```
+
+```{r, include=FALSE}
+# set up variables
+season <- c()
+home_PlayTimeDiff <- c()
+away_PlayTimeDiff <- c()
+home_yrdline100 <- c()
+away_yrdline100 <- c()
+home_ydstogo <- c()
+away_ydstogo <- c()
+home_ydsnet <- c()
+away_ydsnet <- c()
+home_Yards.Gained <- c()
+away_Yards.Gained <- c()
+home_FirstDown <- c()
+away_FirstDown <- c()
+home_PlayAttempted <- c()
+away_PlayAttempted <- c()
+home_Touchdown <- c()
+away_Touchdown <- c()
+home_InterceptionThrown <- c()
+away_InterceptionThrown <- c()
+home_Fumble <- c()
+away_Fumble <- c()
+home_Sack <- c()
+away_Sack <- c()
+home_YardsAfterCatch <- c()
+away_YardsAfterCatch <- c()
+home_FieldGoalDistance <- c()
+away_FieldGoalDistance <-c()
+home_down_1 <- c()
+home_down_2 <- c()
+home_down_3 <- c()
+home_down_4 <- c()
+away_down_1 <- c()
+away_down_2 <- c()
+away_down_3 <- c()
+away_down_4 <- c()
+home_Result_NoGood <- c()
+away_Result_NoGood <- c()
+home_Result_Blocked <- c()
+away_Result_Blocked <- c()
+home_Result_Good <- c()
+away_Result_Good <- c()
+home_Type_Kickoff <- c()
+away_Type_Kickoff <- c()
+home_Type_Pass <- c()
+away_Type_Pass <- c()
+home_Type_Run <- c()
+away_Type_Run <- c()
+home_Type_Punt <- c()
+away_Type_Punt <- c()
+home_Type_Sack <- c()
+away_Type_Sack <- c()
+home_Type_FieldGoal <- c()
+away_Type_FieldGoal <- c()
+home_Type_NoPlay <- c()
+away_Type_NoPlay <- c()
+home_Type_QuarterEnd <- c()
+away_Type_QuarterEnd <- c()
+home_Type_TwoMinuteWarning <- c()
+away_Type_TwoMinuteWarning <- c()
+home_Type_Timeout <- c()
+away_Type_Timeout <- c()
+home_Type_ExtraPoint <- c()
+away_Type_ExtraPoint <- c()
+home_Type_QBKneel <- c()
+away_Type_QBKneel <- c()
+home_Type_EndofGame <- c()
+away_Type_EndofGame <- c()
+home_Type_Spike <- c()
+away_Type_Spike <- c()
+home_Type_HalfEnd <- c()
+away_Type_HalfEnd <- c()
+home_CompletePassRatio <- c()
+away_CompletePassRatio <- c()
+home_Penalty.Yards <- c()
+away_Penalty.Yards <- c()
+home_win <- c()
+```
+
+```{r, include=FALSE}
+# Use for-loop to Aggregate Data to Game Level
+for(i in unique(mydata$GameID)){
+  # test data
+  test <- data.frame(mydata[mydata$GameID == i, ])
+  # Indentify variable Season
+  season <- c(season,test$Season[1])
+  # Remove GameID
+  test <- subset(test, select = -c(1))
+  # Indentify Home Team & Away Team
+  home <- test$HomeTeam[1]
+  away <- test$AwayTeam[1]
+  home_post <- test[test$posteam == home, ]
+  away_post <- test[test$posteam == away, ]
+  # Aggregate for Home and Away -- MEAN 
+  home_PlayTimeDiff <- c(home_PlayTimeDiff, mean(home_post$PlayTimeDiff,na.rm = TRUE))
+  away_PlayTimeDiff <- c(away_PlayTimeDiff, mean(away_post$PlayTimeDiff,na.rm = TRUE))
+  home_yrdline100 <- c(home_yrdline100, mean(home_post$yrdline100,na.rm = TRUE))
+  away_yrdline100 <- c(away_yrdline100, mean(away_post$yrdline100,na.rm = TRUE))
+  home_ydstogo <- c(home_ydstogo, mean(home_post$ydstogo))
+  away_ydstogo <- c(away_ydstogo, mean(away_post$ydstogo))
+  home_ydsnet <- c(home_ydsnet, mean(home_post$ydsnet))
+  away_ydsnet <- c(away_ydsnet, mean(away_post$ydsnet))
+  home_Yards.Gained <- c(home_Yards.Gained, mean(home_post$Yards.Gained))
+  away_Yards.Gained <- c(away_Yards.Gained, mean(away_post$Yards.Gained))
+  # Aggregate for Home and Away -- SUM
+  home_FirstDown <- c(home_FirstDown, sum(home_post$FirstDown,na.rm = TRUE))
+  away_FirstDown <- c(away_FirstDown, sum(away_post$FirstDown,na.rm = TRUE))
+  home_PlayAttempted <- c(home_PlayAttempted, sum(home_post$PlayAttempted))
+  away_PlayAttempted <- c(away_PlayAttempted, sum(away_post$PlayAttempted))
+  home_Touchdown <- c(home_Touchdown, sum(home_post$Touchdown))
+  away_Touchdown <- c(away_Touchdown, sum(away_post$Touchdown))
+  home_InterceptionThrown <- c(home_InterceptionThrown, sum(home_post$InterceptionThrown))
+  away_InterceptionThrown <- c(away_InterceptionThrown, sum(away_post$InterceptionThrown))
+  home_Fumble <- c(home_Fumble, sum(home_post$Fumble))
+  away_Fumble <- c(away_Fumble, sum(away_post$Fumble))
+  home_Sack <- c(home_Sack, sum(home_post$Sack))
+  away_Sack <- c(away_Sack, sum(away_post$Sack))
+  # Aggregate for Home and Away -- MEAN W/O ZEROs or NAs
+  home_YardsAfterCatch <- c(home_YardsAfterCatch, mean(home_post$YardsAfterCatch[home_post$YardsAfterCatch != 0], na.rm = TRUE))
+  away_YardsAfterCatch <- c(away_YardsAfterCatch, mean(away_post$YardsAfterCatch[away_post$YardsAfterCatch != 0], na.rm = TRUE))
+  home_FieldGoalDistance <- c(home_FieldGoalDistance, mean(home_post$FieldGoalDistance,na.rm=T))
+  away_FieldGoalDistance <- c(away_FieldGoalDistance, mean(away_post$FieldGoalDistance,na.rm=T))
+  # Aggregate for Home and Away -- Categorical Variables (down, PlayType & FieldGoalResult)
+  typeList <- c()
+  for(type in unique(mydata$PlayType)){
+    typeList <- c(typeList, sum(home_post$PlayType == type))
+  }
+  home_Type_Kickoff <- c(home_Type_Kickoff, typeList[1])
+  home_Type_Pass <- c(home_Type_Pass, typeList[2])
+  home_Type_Run <- c(home_Type_Run, typeList[3])
+  home_Type_Punt <- c(home_Type_Punt, typeList[4])
+  home_Type_Sack <- c(home_Type_Sack, typeList[5])
+  home_Type_FieldGoal <- c(home_Type_FieldGoal, typeList[6])
+  home_Type_NoPlay <- c(home_Type_NoPlay, typeList[7])
+  home_Type_QuarterEnd <- c(home_Type_QuarterEnd, typeList[8])
+  home_Type_TwoMinuteWarning <- c(home_Type_TwoMinuteWarning, typeList[9])
+  home_Type_Timeout <- c(home_Type_Timeout, typeList[10])
+  home_Type_ExtraPoint <- c(home_Type_ExtraPoint, typeList[11])
+  home_Type_QBKneel <- c(home_Type_QBKneel, typeList[12])
+  home_Type_EndofGame <- c(home_Type_EndofGame, typeList[13])
+  home_Type_Spike <- c(home_Type_Spike, typeList[14])
+  home_Type_HalfEnd <- c(home_Type_HalfEnd, typeList[15])
+  downList <- c()
+  for(down in unique(mydata$down)){
+    alt <- na.omit(home_post$down)
+    downList <- c(downList, sum(alt == down))
+  }
+  home_down_1 <- c(home_down_1, downList[2])
+  home_down_2 <- c(home_down_2, downList[3])
+  home_down_3 <- c(home_down_3, downList[4])
+  home_down_4 <- c(home_down_4, downList[5])
+  resultList <- c()
+  for(result in unique(mydata$FieldGoalResult)){  
+    alt <- na.omit(home_post$FieldGoalResult)
+    resultList <- c(resultList, sum(alt == result))
+  }
+  home_Result_NoGood <- c(home_Result_NoGood, resultList[2])
+  home_Result_Blocked <- c(home_Result_Blocked, resultList[3])
+  home_Result_Good <- c(home_Result_Good, resultList[4])
+  typeList <- c()
+  for(type in unique(mydata$PlayType)){
+    typeList <- c(typeList, sum(away_post$PlayType == type))
+  }
+  away_Type_Kickoff <- c(away_Type_Kickoff, typeList[1])
+  away_Type_Pass <- c(away_Type_Pass, typeList[2])
+  away_Type_Run <- c(away_Type_Run, typeList[3])
+  away_Type_Punt <- c(away_Type_Punt, typeList[4])
+  away_Type_Sack <- c(away_Type_Sack, typeList[5])
+  away_Type_FieldGoal <- c(away_Type_FieldGoal, typeList[6])
+  away_Type_NoPlay <- c(away_Type_NoPlay, typeList[7])
+  away_Type_QuarterEnd <- c(away_Type_QuarterEnd, typeList[8])
+  away_Type_TwoMinuteWarning <- c(away_Type_TwoMinuteWarning, typeList[9])
+  away_Type_Timeout <- c(away_Type_Timeout, typeList[10])
+  away_Type_ExtraPoint <- c(away_Type_ExtraPoint, typeList[11])
+  away_Type_QBKneel <- c(away_Type_QBKneel, typeList[12])
+  away_Type_EndofGame <- c(away_Type_EndofGame, typeList[13])
+  away_Type_Spike <- c(away_Type_Spike, typeList[14])
+  away_Type_HalfEnd <- c(away_Type_HalfEnd, typeList[15])
+  downList <- c()
+  for(down in unique(mydata$down)){
+    alt <- na.omit(away_post$down)
+    downList <- c(downList, sum(alt == down))
+  }
+  away_down_1 <- c(away_down_1, downList[2])
+  away_down_2 <- c(away_down_2, downList[3])
+  away_down_3 <- c(away_down_3, downList[4])
+  away_down_4 <- c(away_down_4, downList[5])
+  resultList <- c()
+  for(result in unique(mydata$FieldGoalResult)){  
+    alt <- na.omit(away_post$FieldGoalResult)
+    resultList <- c(resultList, sum(alt == result))
+  }
+  away_Result_NoGood <- c(away_Result_NoGood, resultList[2])
+  away_Result_Blocked <- c(away_Result_Blocked, resultList[3])
+  away_Result_Good <- c(away_Result_Good, resultList[4])
+  # Aggregate for Home and Away -- complete Pass Ratio = complete / (incomplete + comlete )
+  temp <- as.data.frame(table(home_post$PassOutcome))
+  home_CompletePassRatio <- c(home_CompletePassRatio, temp[1,2] / (temp[1,2] + temp[2,2]))
+  temp <- as.data.frame(table(home_post$PassOutcome))
+  away_CompletePassRatio <- c(away_CompletePassRatio, temp[1,2] / (temp[1,2] + temp[2,2]))
+  # Aggregate for Home and Away -- Total Penalty Yards
+  home_penal <- test[test$PenalizedTeam == home, ]
+  home_Penalty.Yards <- c(home_Penalty.Yards, sum(home_penal$Penalty.Yards,na.rm = TRUE))
+  away_penal <- test[test$PenalizedTeam == away, ]
+  away_Penalty.Yards <- c(away_Penalty.Yards, sum(away_penal$Penalty.Yards,na.rm = TRUE))
+  # Aggregate for Result - If Home Team Won (1), Else (0).
+  # If last element in posteam = hometeam and final score of posteam > defteam, then hometeam won.
+  # If last element in posteam != hometeam and final score of posteam < defteam, then hometeam won.
+  if(tail(test$posteam,1)==test$HomeTeam[1]){
+    if(max(test$PosTeamScore, na.rm = TRUE) > max(test$DefTeamScore, na.rm = TRUE)){
+      home_win <- c(home_win,1)
+    } else {
+      home_win <- c(home_win,0)
+    }
+  } else{
+    if(max(test$PosTeamScore,na.rm = TRUE) < max(test$DefTeamScore,na.rm = TRUE)){
+      home_win <- c(home_win,1)
+    } else {
+      home_win <- c(home_win,0)
+    }
+  }
+}
+```
+
+```{r, include=FALSE}
+# Set up Data Frame for Logistic Regression
+df <- data.frame(home_PlayTimeDiff, away_PlayTimeDiff, home_yrdline100, away_yrdline100, home_ydstogo, away_ydstogo, home_ydsnet, away_ydsnet, home_Yards.Gained, away_Yards.Gained, home_FirstDown, away_FirstDown, home_PlayAttempted, away_PlayAttempted, home_Touchdown, away_Touchdown, home_InterceptionThrown,away_InterceptionThrown, home_Fumble, away_Fumble, home_Sack, away_Sack, home_down_1, home_down_2, home_down_3, home_down_4, away_down_1, away_down_2, away_down_3, away_down_4, home_Result_NoGood, away_Result_NoGood, home_Result_Blocked, away_Result_Blocked, home_Result_Good, away_Result_Good, home_Type_Kickoff, away_Type_Kickoff, home_Type_Pass, away_Type_Pass, home_Type_Run, away_Type_Run, home_Type_Punt, away_Type_Punt, home_Type_Sack, away_Type_Sack, home_Type_FieldGoal, away_Type_FieldGoal,   home_Type_Timeout, away_Type_Timeout, home_Type_ExtraPoint, away_Type_ExtraPoint, home_Type_QBKneel, away_Type_QBKneel,away_Type_Spike,  home_CompletePassRatio, home_Penalty.Yards, away_Penalty.Yards, home_win)
+
+#Manully delet unnecessary variables
+#home_Type_QuarterEnd, away_Type_QuarterEnd, home_Type_TwoMinuteWarning, away_Type_TwoMinuteWarning, away_CompletePassRatio, home_Type_HalfEnd,  home_Type_Spike, home_YardsAfterCatch, away_YardsAfterCatch, home_FieldGoalDistance, away_FieldGoalDistance, season, home_Type_NoPlay, away_Type_NoPlay, home_Type_EndofGame, away_Type_EndofGame, away_Type_HalfEnd
+```
+
+## Exploration of the Raw Data
+
+```{r, echo=FALSE}
+##Correlation Matrix?
+```
+
+```{r, include=FALSE}
+# Exploration of Numerical Variables.
+boxplot(home_yrdline100~home_win,data=df)
+boxplot(away_yrdline100~home_win,data=df)
+boxplot(home_Yards.Gained~home_win,data=df)
+boxplot(away_PlayAttempted~home_win,data=df)
+boxplot(home_Touchdown~home_win,data=df)
+boxplot(home_InterceptionThrown~home_win,data=df)
+boxplot(away_Fumble~home_win,data=df)
+boxplot(home_down_1~home_win,data=df)
+boxplot(home_down_2~home_win,data=df)
+boxplot(home_down_3~home_win,data=df)
+boxplot(home_down_4~home_win,data=df)
+boxplot(away_down_3~home_win,data=df)
+boxplot(away_down_4~home_win,data=df)
+boxplot(home_ydsnet~home_win,data=df)
+boxplot(away_ydsnet~home_win,data=df)
+boxplot(home_Result_Good~home_win, data = df)
+boxplot(away_Type_Pass~home_win, data = df)
+boxplot(home_Type_Run~home_win, data = df)
+boxplot(away_Type_Run~home_win, data = df)
+boxplot(home_Type_Punt~home_win, data = df)
+boxplot(home_Type_ExtraPoint~home_win, data = df)
+boxplot(away_Type_ExtraPoint~home_win, data = df)
+boxplot(home_CompletePassRatio~home_win, data = df)
+boxplot(home_Type_Kickoff~home_win, data = df)
+boxplot(away_Type_Kickoff~home_win, data = df)
+boxplot(home_Type_NoPlay~home_win, data = df)
+boxplot(home_Type_QBKneel~home_win, data = df)
+boxplot(away_Type_QBKneel~home_win, data = df)
+```
+
+After exploring all variables, we discovered that the following four numerical variables in box plots have more distingiushed distributions between whether home team won or not.
+
+Regarding home_InterceptionThrown, when the throw of the home team is inctercepted less frequently, which means the home team is good at offense, it is more likely to win the game.
+
+Regarding home_down_1, in the games home team won, the home team performed more stable and had more total number of first downs. 
+
+Regarding Home_type_punt, the distribution of home team win has lower average with less variability. In the games home team won, home team punted less on average and have more stable performance. Therefore, punting is an indicator of mediocre offensive performance and is an important indicator.
+
+Regarding home_type_ExtraPoint, distribution of home team win has higher average and higher maximum. The more extra points home team got, the more likely it would win, which is not terribly surprising but still and important marker.
+
+```{r, echo=FALSE}
+#Important Numerical Variables.
+par(mfrow=c(1,2))
+boxplot(home_InterceptionThrown~home_win,data=df, main="home_InterceptionThrown vs. home_win", 
+        xlab="Home Win", ylab="#Home Interception Thrown")
+boxplot(home_down_1~home_win,data=df, main="home_down_1 vs. home_win", 
+        xlab="Home Win", ylab="#Home Down 1")
+
+par(mfrow=c(1,2))
+boxplot(home_Type_Punt~home_win, data = df, main="home_Type_Punt vs. home_win", 
+        xlab="Home Win", ylab="#Home Punt")
+boxplot(home_Type_ExtraPoint~home_win, data = df, main="home_Type_ExtraPoint vs. home_win", 
+        xlab="Home Win", ylab="#Home Extra Points")
+```
+
+```{r, include=FALSE}
+#Exploration of Categorical Variables
+home_win_home_punt <- data.frame(df$home_Type_Punt[df$home_win == 1])
+avg_home_win_home_Punt <- sum(home_win_home_punt)/nrow(home_win_home_punt)
+home_lose_home_punt <- data.frame(df$home_Type_Punt[df$home_win == 0])
+avg_home_lose_home_Punt <- sum(home_lose_home_punt)/nrow(home_lose_home_punt)
+
+home_win_home_pass <- data.frame(df$home_Type_Pass[df$home_win == 1])
+avg_home_win_home_pass <- sum(home_win_home_pass)/nrow(home_win_home_pass)
+home_lose_home_pass <- data.frame(df$home_Type_Pass[df$home_win == 0])
+avg_home_lose_home_pass <- sum(home_lose_home_pass)/nrow(home_lose_home_pass)
+
+home_win_home_sack <- data.frame(df$home_Type_Sack[df$home_win == 1])
+avg_home_win_home_sack <- sum(home_win_home_sack)/nrow(home_win_home_sack)
+home_lose_home_sack <- data.frame(df$home_Type_Sack[df$home_win == 0])
+avg_home_lose_home_sack <- sum(home_lose_home_sack)/nrow(home_lose_home_sack)
+
+home_win_home_fieldgoal <- data.frame(df$home_Type_FieldGoal[df$home_win == 1])
+avg_home_win_home_fieldgoal <- sum(home_win_home_fieldgoal)/nrow(home_win_home_fieldgoal)
+home_lose_home_fieldgoal <- data.frame(df$home_Type_FieldGoal[df$home_win == 0])
+avg_home_lose_home_fieldgoal <- sum(home_lose_home_fieldgoal)/nrow(home_lose_home_fieldgoal)
+
+home_win_home_extrapoint <- data.frame(df$home_Type_ExtraPoint[df$home_win == 1])
+avg_home_win_home_extrapoint <- sum(home_win_home_extrapoint)/nrow(home_win_home_extrapoint)
+home_lose_home_extrapoint <- data.frame(df$home_Type_ExtraPoint[df$home_win == 0])
+avg_home_lose_home_extrapoint <- sum(home_lose_home_extrapoint)/nrow(home_lose_home_extrapoint)
+
+home_win_home_kickoff <- data.frame(df$home_Type_Kickoff[df$home_win == 1])
+avg_home_win_home_kickoff <- sum(home_win_home_kickoff)/nrow(home_win_home_kickoff)
+home_lose_home_kickoff <- data.frame(df$home_Type_Kickoff[df$home_win == 0])
+avg_home_lose_home_kickoff <- sum(home_lose_home_kickoff)/nrow(home_lose_home_kickoff)
+
+home_win_home_run <- data.frame(df$home_Type_Run[df$home_win == 1])
+avg_home_win_home_run <- sum(home_win_home_run)/nrow(home_win_home_run)
+home_lose_home_run <- data.frame(df$home_Type_Run[df$home_win == 0])
+avg_home_lose_home_run <- sum(home_lose_home_run)/nrow(home_lose_home_run)
+
+home_win_home_timeout <- data.frame(df$home_Type_Timeout[df$home_win == 1])
+avg_home_win_home_timeout <- sum(home_win_home_timeout)/nrow(home_win_home_timeout)
+home_lose_home_timeout <- data.frame(df$home_Type_Timeout[df$home_win == 0])
+avg_home_lose_home_timeout <- sum(home_lose_home_timeout)/nrow(home_lose_home_timeout)
+
+par(mfrow = c(1,4))
+
+barplot(matrix(c(avg_home_win_home_Punt, avg_home_lose_home_Punt), nr = 2), beside = T, names.arg = ("Home Punt"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+barplot(matrix(c(avg_home_win_home_pass, avg_home_lose_home_pass), nr = 2), beside = T, names.arg = ("Home Pass"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+barplot(matrix(c(avg_home_win_home_sack, avg_home_lose_home_sack), nr = 2), beside = T, names.arg = ("Home Sack"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+barplot(matrix(c(avg_home_win_home_fieldgoal, avg_home_lose_home_fieldgoal), nr = 2), beside = T, names.arg = ("Home Fieldgoal"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+par(mfrow = c(1,4))
+
+barplot(matrix(c(avg_home_win_home_extrapoint, avg_home_lose_home_extrapoint), nr = 2), beside = T, names.arg = ("Home Extrapoint"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+barplot(matrix(c(avg_home_win_home_kickoff, avg_home_lose_home_kickoff), nr = 2), beside = T, names.arg = ("Home Kickoff"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+barplot(matrix(c(avg_home_win_home_run, avg_home_lose_home_run), nr = 2), beside = T, names.arg = ("Home Run"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+barplot(matrix(c(avg_home_win_home_timeout, avg_home_lose_home_timeout), nr = 2), beside = T, names.arg = ("HomeTimeout"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+```
+
+From the barcharts below, "Field Goal Result" shows a significant impact on the result of the game (if home team wins or not). If the home team has more "Good" than "Blocked" field goals, it is more likely to win the game; while "Nogood" outcome does not have a huge impact as missed field goals are a rarity in the NFL, especially at the time of our data.
+
+```{r, echo=FALSE}
+#Important Categorical Variables.
+home_win_home_good <- data.frame(df$home_Result_Good[df$home_win == 1])
+avg_home_win_home_good <- sum(home_win_home_good)/nrow(home_win_home_good)
+home_lose_home_good <- data.frame(df$home_Result_Good[df$home_win == 0])
+avg_home_lose_home_good <- sum(home_lose_home_good)/nrow(home_lose_home_good)
+home_win_home_nogood <- data.frame(df$home_Result_NoGood[df$home_win == 1])
+avg_home_win_home_nogood <- sum(home_win_home_nogood)/nrow(home_win_home_nogood)
+home_lose_home_nogood <- data.frame(df$home_Result_NoGood[df$home_win == 0])
+avg_home_lose_home_nogood <- sum(home_lose_home_nogood)/nrow(home_lose_home_nogood)
+home_win_home_block <- data.frame(df$home_Result_Blocked[df$home_win == 1])
+avg_home_win_home_block <- sum(home_win_home_block)/nrow(home_win_home_block)
+home_lose_home_block <- data.frame(df$home_Result_Blocked[df$home_win == 0])
+avg_home_lose_home_block <- sum(home_lose_home_block)/nrow(home_lose_home_block)
+
+par(mfrow = c(1,3))
+barplot(matrix(c(avg_home_win_home_good, avg_home_lose_home_good), nr = 2), beside = T, names.arg = ("Home Result Good"), col=c("seagreen","lightgoldenrod1"))
+barplot(matrix(c(avg_home_win_home_nogood, avg_home_lose_home_nogood), nr = 2), beside = T, names.arg = ("Home Result Nogood"), col=c("seagreen","lightgoldenrod1"))
+barplot(matrix(c(avg_home_win_home_block, avg_home_lose_home_block), nr = 2), beside = T, names.arg = ("Home Result Blocked"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Win", "Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+```
+
+```{r, include=FALSE}
+home_win_home_kickoff <- data.frame(df$home_Type_Kickoff[df$home_win == 1])
+avg_home_win_home_kickoff <- sum(home_win_home_kickoff)/nrow(home_win_home_kickoff)
+home_lose_home_kickoff <- data.frame(df$home_Type_Kickoff[df$home_win == 0])
+avg_home_lose_home_kickoff <- sum(home_lose_home_kickoff)/nrow(home_lose_home_kickoff)
+
+home_win_home_run <- data.frame(df$home_Type_Run[df$home_win == 1])
+avg_home_win_home_run <- sum(home_win_home_run)/nrow(home_win_home_run)
+home_lose_home_run <- data.frame(df$home_Type_Run[df$home_win == 0])
+avg_home_lose_home_run <- sum(home_lose_home_run)/nrow(home_lose_home_run)
+
+home_win_home_timeout <- data.frame(df$home_Type_Timeout[df$home_win == 1])
+avg_home_win_home_timeout <- sum(home_win_home_timeout)/nrow(home_win_home_timeout)
+home_lose_home_timeout <- data.frame(df$home_Type_Timeout[df$home_win == 0])
+avg_home_lose_home_timeout <- sum(home_lose_home_timeout)/nrow(home_lose_home_timeout)
+
+barplot(matrix(c(avg_home_win_home_kickoff, avg_home_lose_home_kickoff), nr = 2), beside = T, names.arg = ("Home Kickoff"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+barplot(matrix(c(avg_home_win_home_run, avg_home_lose_home_run), nr = 2), beside = T, names.arg = ("Home Run"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+barplot(matrix(c(avg_home_win_home_timeout, avg_home_lose_home_timeout), nr = 2), beside = T, names.arg = ("HomeTimeout"), col=c("seagreen","lightgoldenrod1"))
+legend("topleft", c("Home Win", "Home Lose"), pch = 15, col=c("seagreen","lightgoldenrod1"), bty = "n")
+
+#home_Type_Kickoff, home_Type_Run, home_Type_Sack, home_Type_FieldGoal, home_Type_NoPlay, home_Type_Timeout, home_Type_ExtraPoint, home_Type_QBKneel, home_Type_EndofGame
+```
+
+## Model Building
+
+We randomly split our data into two sets: 70% of our data is used to train the model and the remaining 30% for validation purposes.  We applied the logistic regression model to predict whether the Home team will win. We then validated our model by performing Pseudo-R2, predicted-vs-actual, and ROC curve analysis as diagnostic tests. Our final model passed all the diagnostic tests and was able to predict with 90% accuracy whether or not the Home team will win a game. Our model's AUC (area under curve) score is 84.18%, which indicates that our model is performing relatively accurately.
+
+```{r Model_Building, include=FALSE}
+# Model Building
+# Set Seed
+set.seed(123)
+
+#Randomly split data into train(70%) and validation(30%) sets
+val <- sample_n(df, round(nrow(df)*0.3))
+train <- setdiff(df,val)
+library(sjPlot)
+library(glm2)
+library(glmnet)
+model <- glm2(home_win ~.,family=binomial(link='logit'),data=train, control = list(maxit = 100000))
+summary(model)
+# From the model summary above, variables that are significant are home_Type_QBKneel(8.66e-05), away_Type_QBKneel(2.26e-07), home_Type_ExtraPoint(0.010232), away_Type_Punt(0.026844), home_Type_Kickoff(3.01e-05), home_down_1(1.78e-05), home_down_2(6.96e-06), home_down_3(1.42e-06), home_down_4(0.000239), away_down_2(0.006049), away_down_3(0.049996), away_down_4(0.005665), home_PlayAttempted(2.62e-06), away_PlayAttempted(0.043837), away_Touchdown(0.046472), home_InterceptionThrown(0.016153), home_Fumble(0.031045)
+
+#Diagnostic Tests 
+library(pscl)
+#here we look at Mcfaden's PR^2,.2 to .4 is a pretty good fit, ours ia 0.32
+pR2(model)
+
+fitted.results <- predict(model,newdata = subset(val, select = -home_win), type = "response")
+fitted.results <- ifelse(fitted.results >= 0.5,1,0)
+misClasificError <- mean(fitted.results != val$home_win)
+Accuracy <- 1 - misClasificError
+# our accuracy rate is 0.92
+Accuracy
+
+library(ROCR)
+p <- predict(model, newdata = subset(val, select = -home_win), type="response")
+pr <- prediction(p, val$home_win)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+#our auc is 0.8418278
+auc
+
+```
+
+```{r AME, include=FALSE, message=FALSE}
+# Marginal Effect
+library(margins)
+#Summary of each variable's Average Marginal Effect(AME)
+summary(margins(model))
+```
+
+We performed the AME (Average Marginal Effect) Analysis and found that:
+
+* The chance of home team winning decreases by 2.6 percentage points with one unit increase of awaydown_1
+
+* The chance of home team winning increases by 2.8 percentage points with one unit increase of away_PlayAttempted
+
+We also generated Odds Ratios Plot for selected influencial variables(home_InterceptionThrown, away_Touchdown, home_Fumble, away_Type_Punt).
+
+```{r Odds_Ratios_Plot, echo=FALSE, message=FALSE}
+plot_model(model, terms = c("home_InterceptionThrown","away_Touchdown","home_Fumble","away_Type_Punt"), axis.lim = c(0.1,1.8), show.values = T)
+```
+
+As shown above, home_PlayAttempted,home_InterceptionThrown,away_Touchdown and home_Fumble have an odd ratio below 1 which are 0.23, 0.65, 0.61, and 0.78 respectively, while away_Type_Punt, away_PlayAttempted are above 1. Therefore, we concluded that:
+
+* The odds of homewin with a home_InterceptionThrown is 35% less than that without home_InterceptionThrown
+
+* The odds of homewin with an away_Touchdown is 39% less than that without away_Touchdown
+
+* The odds of homewin with a home_Fumble is 22% less than that without home_Fumble
+
+* The odds of homewin with an away_Type_Punt is 43% more than that without away_Type_Punt
+
+
+
+
+There are certain elements that our data does not take into account that could have an effect on the outcome of several variables.  One of the most notable is weather.  Fumbles, punts, dropped passes, and running speed during rushes and passes are just a few elements that could be affected by the weather.  In a perfect world, we would have identical weather conditions across the board for all games.  As this is an impossibility (even cold or rainy conditions vary by location and day),  the weather will impact players' ability without directly impacting the score.  Further, player injuries (and disciplinary actions) are not taken into account.  A star player or multiple linemen being injured would likely have a great impact on the entire game, from plays called to yards gained to the final score.  Again, if we were given our choice, all players would remain uninjured (and eligible for games).   The referee crew could also have an impact on the outcome of individual variables as well as the game as a whole.  Individual judgement calls are only, by rule, reviewed on certain plays.  Personal judgement and interrelationships of the crew as a whole can have a negative impact on the game.  In our perfect experiment, the referees would have machine-like precision and all calls would be reviewed in an objective manner.  As it stands, even calls that are reviewed have an element of subjectivity. 
+

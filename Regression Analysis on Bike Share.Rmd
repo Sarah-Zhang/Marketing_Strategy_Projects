@@ -1,0 +1,334 @@
+---
+title: "Homework1 Regression Analysis on Bike Share"
+author: "Xuanhui Liao, Yunchan Sun, Becca Wernick, Taowan Yang, Xiaowen Zhang"
+date: "Oct. 26 2018"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(dplyr)
+library(car)
+```
+
+## Project Overview
+
+In this project, we performed regression analysis on the bike-sharing data to predict the total count of daily bike users. Based on our "best" model, wind speed and normalized feeling temperature are the two most influencial factors to the total counts of daily bike users. In the end, we provided useful suggestions for maximizing the profits of the company.
+
+```{r, include=FALSE}
+#Let's take a look at our data first.
+data <- read.csv("./HW1 bikeshare.csv")
+df <- data.frame(data)
+str(df)
+```
+
+```{r, include=FALSE}
+#Create a new data frame named bike_sharing1 to explore the variables.
+int_var <- df[,3:13]
+resp_var <- df[,16]
+bike_sharing1 <- cbind(int_var,resp_var)
+```
+
+```{r, include=FALSE}
+#Change categorical variables to type "factor".
+cols <- c("season", "yr", "mnth", "holiday", "weekday", "workingday", "weathersit")
+bike_sharing1[cols] <- lapply(bike_sharing1[cols], factor)
+```
+
+```{r, include=FALSE}
+library(ggplot2)
+library(ggcorrplot)
+library(corrplot)
+library(GGally)
+library(psych)
+num <- c("temp","atemp","hum","windspeed")
+```
+
+## Exploration of the Raw Data
+
+The graph below shows the correlation matrix of the numeric independent variables. It is shown that the variables "temp" and "atemp"  have the highest positive correltion, while "windspeed" and "humidity" have the lowest negative correlation.
+
+```{r, echo = FALSE}
+#Correlation matrix of the numeric independent variables
+corrplot.mixed(cor(bike_sharing1[num]), order="hclust", tl.col="black")
+```
+
+The table below shows some general statistics of the independent numerical variables.
+
+```{r, echo = FALSE}
+numData = data[c('windspeed', 'hum', 'atemp', 'temp')]
+summary(numData)
+```
+
+```{r, include=FALSE}
+#Scatterplots of independent numeric variables vs. response variable
+plot(bike_sharing1$temp, bike_sharing1$resp_var, main = "cnt vs. temp", xlab="Normalized Temperature", ylab="Total Rental Bikes")
+plot(bike_sharing1$atemp, bike_sharing1$resp_var, main = "cnt vs. atemp", xlab="Normalized Feeling Temperature", ylab="Total Rental Bikes")
+plot(bike_sharing1$hum, bike_sharing1$resp_var, main = "cnt vs. hum", xlab="Normalized Humidity", ylab="Total Rental Bikes")
+plot(bike_sharing1$windspeed, bike_sharing1$resp_var, main = "cnt vs. windspeed", xlab="Normalized Wind Speed", ylab="Total Rental Bikes")
+```
+
+```{r, include=FALSE}
+#Boxplots of independent categorial variables vs. response variable
+boxplot(resp_var~yr,data=bike_sharing1, main="cnt vs. yr", 
+        xlab="Year", ylab="Total Rental Bikes")
+boxplot(resp_var~season,data=bike_sharing1, main="cnt vs. season", 
+        xlab="Season", ylab="Total Rental Bikes")
+boxplot(resp_var~mnth,data=bike_sharing1, main="cnt vs. mnth", 
+        xlab="Month", ylab="Total Rental Bikes")
+boxplot(resp_var~holiday,data=bike_sharing1, main="cnt vs. holiday", 
+        xlab="Holiday", ylab="Total Rental Bikes")
+boxplot(resp_var~weekday,data=bike_sharing1, main="cnt vs. weekday", 
+        xlab="Weekday", ylab="Total Rental Bikes")
+boxplot(resp_var~workingday,data=bike_sharing1, main="cnt vs. workingday", 
+        xlab="Workingday", ylab="Total Rental Bikes")
+boxplot(resp_var~weathersit,data=bike_sharing1, main="cnt vs. weathersit", 
+        xlab="Weather Conditions", ylab="Total Rental Bikes")
+```
+
+After exploring all variables, we discovered that the following three categorical variables in box plots have more distingiushed distributions between different levels than others. Also, the scatterplot shows an obvious relationship between "atemp" and the response.
+
+```{r, echo=FALSE}
+#Important variables vs. response variable
+par(mfrow=c(2,2))
+boxplot(resp_var~mnth,data=bike_sharing1, main="cnt vs. mnth", 
+        xlab="Month", ylab="Total Rental Bikes")
+boxplot(resp_var~holiday,data=bike_sharing1, main="cnt vs. holiday", 
+        xlab="Holiday", ylab="Total Rental Bikes")
+boxplot(resp_var~weathersit,data=bike_sharing1, main="cnt vs. weathersit", 
+        xlab="Weather Conditions", ylab="Total Rental Bikes")
+plot(bike_sharing1$atemp, bike_sharing1$resp_var, main = "cnt vs. atemp", xlab="Normalized Feeling Temperature", ylab="Total Rental Bikes")
+
+```
+
+## Model Building
+
+We applied t-tests, backward elimination, and ANOVA F-tests to determine the "best" linear regression model to predict the total counts of daily bike users. We then validated our "best" model by performing diagnostic tests. Our final model was able to explained 85.9% of the variability in the response variable.
+
+```{r Data Manipulation 1, include=FALSE}
+#One-hot encoding on the categorical variables.
+df <- df %>% mutate(summer = ifelse(df$season == 2, 1, 0)) %>% 
+  mutate(fall = ifelse(df$season == 3, 1, 0)) %>%
+  mutate(winter = ifelse(df$season == 4, 1, 0)) %>%
+  mutate(Feb = ifelse(df$mnth == 2, 1, 0)) %>%
+  mutate(Mar = ifelse(df$mnth == 3, 1, 0)) %>%
+  mutate(Apr = ifelse(df$mnth == 4, 1, 0)) %>%
+  mutate(May = ifelse(df$mnth == 5, 1, 0)) %>%
+  mutate(Jun = ifelse(df$mnth == 6, 1, 0)) %>%
+  mutate(Jul = ifelse(df$mnth == 7, 1, 0)) %>%
+  mutate(Aug = ifelse(df$mnth == 8, 1, 0)) %>%
+  mutate(Sep = ifelse(df$mnth == 9, 1, 0)) %>% 
+  mutate(Oct = ifelse(df$mnth == 10, 1, 0)) %>% 
+  mutate(Nov = ifelse(df$mnth == 11, 1, 0)) %>% 
+  mutate(Dec = ifelse(df$mnth == 12, 1, 0)) %>%
+  mutate(Mon = ifelse(df$weekday == 1, 1, 0)) %>%
+  mutate(Tue = ifelse(df$weekday == 2, 1, 0)) %>%
+  mutate(Wed = ifelse(df$weekday == 3, 1, 0)) %>%
+  mutate(Thur = ifelse(df$weekday == 4, 1, 0)) %>%
+  mutate(Fri = ifelse(df$weekday == 5, 1, 0)) %>%
+  mutate(Sat = ifelse(df$weekday == 6, 1, 0)) %>%
+  mutate(weather2 = ifelse(df$weathersit == 2, 1, 0)) %>%
+  mutate(weather3 = ifelse(df$weathersit == 3, 1, 0))
+df
+
+```
+
+
+```{r Data Manipulation 2, include=FALSE}
+#Drop unnecessary variables.
+df <- df[,-c(1,2,3,5,7,9,14,15)]
+str(df)
+```
+
+```{r Model Building 1, include=FALSE}
+fullmodel <- lm(cnt ~winter+summer+fall+yr+Feb+Mar+Apr+May+Jun+Jul+Aug+Sep+Oct+Nov+Dec+holiday+Mon+Tue+Wed+Thur+Fri+Sat+workingday+weather2+weather3+temp+atemp+hum+windspeed, data=df)
+step(fullmodel, direction = "backward", trace=TRUE )
+print(summary(fullmodel)$coef[,"Pr(>|t|)"])
+BIC(fullmodel)
+```
+
+```{r Model Building 2, include=FALSE}
+best.Model <- lm(formula = cnt ~ winter + summer + fall + yr + Mar + Apr + 
+    May + Jun + Aug + Sep + Oct + holiday + Mon + Tue + Wed + 
+    Thur + Fri + Sat + weather2 + weather3 + temp + hum + windspeed, 
+    data = df)
+```
+
+```{r Model Diagnosis 1, include=FALSE}
+#Nonnormality
+e <- best.Model$residuals
+std.residuals <- (e - mean(e)) / sd(e)
+
+#qqplot
+qqnorm(std.residuals)
+qqline(std.residuals, col= 'blue')
+
+#Not normally distributed
+```
+
+```{r, include=FALSE}
+#Remove outliers and influencial points.
+library(olsrr)
+ols_dffits_plot(best.Model)
+dffits_bs <- abs(dffits(best.Model))
+dffits_bs[is.na(dffits(best.Model))] <- 10
+x_new <- df %>% dplyr::select(-c(cnt))
+dffits_data_bs <- df[dffits_bs < 2 * sqrt(ncol(x_new)/nrow(x_new)), ]
+
+model_new <- lm(cnt ~ winter+summer+fall+yr+Feb+Mar+Apr+May+Jun+Jul+Aug+Sep+Oct+Nov+Dec+holiday+Mon+Tue+Wed+Thur+Fri+Sat+workingday+weather2+weather3+temp+atemp+hum+windspeed, data = dffits_data_bs)
+summary(model_new)
+```
+
+```{r, include=FALSE}
+#Backward Elimination
+step(model_new, direction = "backward", trace=TRUE )
+print(summary(model_new)$coef[,"Pr(>|t|)"])
+BIC(model_new)
+```
+
+```{r, include=FALSE}
+#Get new new_best_model
+best.model.new <- lm(formula = cnt ~ winter + summer + fall + yr + Feb + Mar + 
+    Apr + May + Jun + Aug + Sep + Oct + holiday + Mon + Tue + 
+    Wed + Thur + Fri + Sat + weather2 + weather3 + temp + atemp + 
+    hum + windspeed, data = dffits_data_bs)
+summary(best.model.new)
+```
+
+```{r, include=FALSE}
+#Model Diagnosis
+e.new <- best.model.new$residuals
+std.residuals.new <- (e.new - mean(e.new)) / sd(e.new)
+
+#Normality test (qqplot)
+qqnorm(std.residuals.new)
+qqline(std.residuals.new, col= 'blue')
+
+#Multicollinearity test (VIF)
+vif(best.model.new)
+
+#Have high correlated variables
+#summer       fall
+#7.037543    6.929839
+   
+#temp          atemp
+#73.473522   67.697599 
+
+#Season fratures (Spring, Summer, Fall, Winter) have obviouse corelation with Month features
+# We decided to elimnate all Season features because the field "season" is directly related with the field "month", that spring is associated with month 1, 2, and 3; summer is associated with month 4, 5, and 6; fall is associated with month 7, 8, and 9; winter is associated with month 10, 11, 12. The field "month" is more detailed and we could easily see the difference of the demand between each month. "season" is a combination of months, and the changes are too general.
+
+#temp and atemp featues are oberiousely corelated with each other
+# We decided to keep atemp feature but elimnate temp features, because people decide whether they want to ride a bike or not based on how the weather feels, not the "number" of the temperature showing on the weather reports. Also, as shown below, the p-value of temp is larger than 0.05, while the p-value of atemp is smaller than 0.05
+
+#temp    p-value: 0.067125
+#atemp   p-value: 0.026251
+```
+
+```{r, include=FALSE}
+temp_data <- dffits_data_bs[,-c(4,9,10,11)]
+best.model.after = lm(formula = cnt ~ yr + Feb + Mar + 
+    Apr + May + Jun + Aug + Sep + Oct + holiday + Mon + Tue + 
+    Wed + Thur + Fri + Sat + atemp + weather2 + weather3 + 
+    hum + windspeed, data = temp_data)
+```
+
+```{r, include=FALSE}
+#ANOVA F TEST to compare two models (before/after eliminating all seasons and atemp)
+anova(best.model.new, best.model.after)
+
+#Since F value is large and p-value is super small, we reject null hyposis test that there is no difference between two models, and conclude that the model after eliminate all seasons and atemp is better.
+
+#Now our best model is best.model.after
+```
+
+```{r Model Diagnosis 2, include=FALSE}
+e.new <- best.model.after$residuals
+std.residuals.new <- (e.new - mean(e.new)) / sd(e.new)
+
+#Normality test (qqplot)
+qqnorm(std.residuals.new)
+qqline(std.residuals.new, col= 'blue')
+
+#Multicollinearity test (VIF)
+vif(best.model.after)
+#We can see now the vif of every variable is smaller than 5. 
+#Conclusion: pass multicolinearity test.
+```
+
+```{r Diagnostic Test, include=FALSE}
+#Rest of the diagnostic test (picture summary of the Best Model best.model.after)
+par(mfrow = c(2,2))
+plot(best.model.after)
+
+#We don't see any distinctive pattern in Risiduals vs Fitted plot, So we believe our model passed linearity test.
+
+#Since the dots in our Scales-Location plot looks pretty random. This is shows we passed the assumption of equal variance (homoscedasticity).
+
+#The residual vs leverage plot showed there is no influential cases.
+```
+
+The variables included in our "best" model, as well as their coefficients, are shown below.
+```{r coefficients of our best model, echo = FALSE}
+coef(best.model.after)
+```
+
+Based on our "best" model, variable atemp and windspeed have the most influence to total number of bike rent. With one unit increase of normalized feeling temperature in celsius, the total number of bike rent increases by around 5668 units, holding everything else constant. On the other hand, with one unit increase of normalized wind speed, the total number of bike rent decreases by around 2694 units, holding everything else constant.
+
+## Prediction Inerval
+
+Prediction interval tests are conducted for the following three conditions:
+
+1.global mean of all columns as benchmark  
+
+2.increase only atemp by 5 Celsius (0.1 after normalized), holding every thing else unchanged (global mean)
+
+3.increase only windspeed by 6.7 (0.1 after normalized), holding every thing else unchanged (global mean)
+
+```{r Prediction Interval, echo=FALSE}
+gmean = data.frame(lapply(temp_data,mean))
+predict(best.model.after, gmean, interval="predict")
+gmean[,4] <- gmean[,4] + 0.1
+predict(best.model.after, gmean, interval="predict")
+gmean = data.frame(lapply(temp_data,mean))
+gmean[,6] <- gmean[,6] + 0.1
+predict(best.model.after, gmean, interval="predict")
+
+```
+
+We can be 95% confident that with a 5 Celsius increase in feeling temperature, the percentage of the total number of bike rent will increase to be in between 3131.658 and 5989.945.
+
+We can be 95% confident that with a 6.7 mph increase in feeling temperature, the percentage of the total number of bike rent will increase to be in between 2860.137 and 5722.684.
+
+## Suggestions
+
+CONDITIONAL SUGGESTIONS:
+
+Based on the model and the prediction interval, we recommend the following promotions to boost the demand:
+
+* Rainy Day Promo - running a price promotion on weathersit 3 (Light Snow, Light Rain + Thunderstorm + Scattered clouds, Light Rain + Scattered clouds) to increase ridership.
+
+* Holiday Plant-a-Tree Promo - offering bike promotion for eco-friendly concerns - if you bike 10 (or more) miles on a holiday, the company will plant a tree.
+
+* Dining in Winter Promo - collaborating with restaurants in the winter months for a discount on food. (Reciprocal discounts will also be given at partner restaurants.)
+
+GENERAL SUGGESTIONS:
+
+In addition to our suggestions to address specific demand lags, we propose the following to boost overall demand:
+
+* App - seeing other nearby users to make friends / social media meets geotracking
+  
+    + mile-ranking among the users
+  
+    + providing weather data for next day/week
+  
+    + sharing top (safe) bike routes for each city (routes updated in holidays to boost the demand)
+  
+    + users are able to decide if geotracking is permitted (for privacy concern)
+
+* Nitty Gritty Bike Event - holding a "Nitty Gritty" biking competition in mud
+
+* Rent-to-Own High-End Bikes - the users are able to purchase the high-end bikes at a discount after renting for a certain period
+

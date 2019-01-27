@@ -1,0 +1,299 @@
+---
+title: "Homework3 Everlane Marketing Strategy"
+author: "Xuanhui Liao 44592188, Yunchan Sun 47737525, Becca Wernick 47818736, Taowan Yang 44510821, Xiaowen Zhang 47801472"
+date: "Dec. 6th 2018"
+output:
+  pdf_document: 
+    fig_height: 3.5
+  html_document:
+    df_print: paged
+---
+
+```{r, include=FALSE}
+library(tidyverse)
+library(broom)
+library(plm)
+library(lme4)
+load("C:/Users/rebec/Desktop/MAST 6251 Applied Predictive Analytics I/HW3/everlane.Rdata")
+```
+
+## Project Overview
+
+In this project, we aim to find a targeting strategy and provide business insights and suggestions for Everlane to maximize its profits, specifically through the use of promotions.  We analyzed existing customer transactions and discounts data to build a model to predict customer spending behavior on an individual level by estimating the intercepts and promotion coefficients for each individual. We then targeted individuals with comparatively high sensitivity to promotions  and calculated their expected revenue gains. Finally, we made recommendations for future promotional activity that will add value to Everlane's business. 
+
+## Exploratory Data Analysis
+
+In the EDA, we explored relationship between age and spending as well as gender and spending related to promotional value. A general pattern we discovered is that as promotion value increases, the promotion works more effectively in increasing the consumer spending. The dollar spend per transaction has an approximately normal distribution centered at around `$`100, with minimum of `$`0 and maximum of nearly $300. 
+
+For promo value 0, 15, and 25, average spending of males exceeds that of females, while for the highest promo value 35, average spending of females surpasses that of males. Therefore, larger promotional value encourages females to consume more.
+
+```{r, echo=FALSE}
+ggplot(everlane,aes(x=age,y=spend,color=as.factor(promo))) + theme_bw(15) + geom_point(size= 0.1) +
+facet_wrap(~factor(female, labels = c("Male", "Female")))+
+scale_color_discrete(name="Promo value") + 
+  ylab("Transaction Amount ($)") + xlab("Age") +
+  stat_smooth(method="lm",se = FALSE)
+```
+
+As shown above, as they age, both male and female spend more at promotional value 25 and 35, while spending less at promotional value 0 and 15. There is one exception for men about 20 years of age, when promo 25 works better than promo 35. The steeper slope for promo 35 on the female graph indicates that older females have relatively higher sensitivity to larger discounts. Also, promo 0 generates the lowest average transaction value, but there are a huge amount of transactions which could also bring a competitive amount of revenue.
+
+```{r, include=FALSE}
+ggplot(everlane,aes(x=spend)) + theme_bw(15) + geom_histogram(fill = "dodgerblue") + xlab("Dollars Spent per Transaction") + ylab("")
+```
+
+```{r, include=FALSE}
+ggplot(everlane,aes(x=factor(promo),y=spend)) + theme_bw(15) + geom_bar(stat = "summary",fun.y="mean",fill="seagreen",width = .6) + 
+  xlab("Promotional Value (in $)") + ylab("Avg. Amount (in $)")
+```
+
+```{r, include=FALSE}
+ggplot(everlane,aes(x=factor(promo),y=spend,fill=factor(female))) + theme_bw(15) + geom_bar(position = "dodge", stat = "summary",fun.y="mean") + 
+  xlab("Promotional Value (in $)") + ylab("Avg. Amount (in $)") + 
+  scale_fill_discrete(name = "Female?",labels=c("No","Yes"))
+```
+
+```{r, include=FALSE}
+ggplot(everlane,aes(x=age,y=spend,color=as.factor(promo))) + theme_bw(15) + geom_point() + scale_color_discrete(name="Promo value") + 
+  ylab("Transaction Amount ($)") + xlab("Age") +
+  stat_smooth(method="lm",se = FALSE)
+```
+
+```{r, include=FALSE}
+n           = 100   #individuals
+set.seed(1)
+n         = 345 #customers
+t         = sample(1:10,n,replace=TRUE) #transactions per customer
+id        = rep(1:n,times=t)
+N         = length(id)       #observations
+endDate   = as.Date("2018-11-15")
+transdate = endDate - sample(0:365,N,replace=TRUE)
+alpha     = 110
+alpha_sigma = 30
+alpha_i   = rnorm(n,alpha,alpha_sigma)
+
+promo  = sample(c(0,15,25,35),N,replace=TRUE,prob = c(.7,.1,.1,.1))
+
+alpha_promo   = .8
+alpha_promo_s = .5
+promo_i   = rnorm(n,alpha_promo,alpha_promo_s)
+
+beta   = c(.6,.02,-15,-.6) #female*promo,age*promo,female,age
+female    = sample(0:1,n,replace=TRUE)
+age       = sample(18:63,n,replace=TRUE)
+sigma     = 10
+
+female = female[id]
+age    = age[id]
+
+X = cbind(female*promo,age*promo,female,age)
+
+spend = alpha_i[id] + promo_i[id]*promo + X%*%beta + rnorm(N,0,sigma)
+spend[spend<0] = 5
+
+everlane = data.frame(id,transdate,spend,age,female,promo)
+everlane = everlane %>% arrange(id,transdate)
+save(everlane,file="everlane.Rdata")
+
+#verify
+reg1 = lm(spend~age*promo+female*promo,everlane)
+# summary(reg1)
+
+reg_re = lmer(spend ~ age+female+age*promo+female*promo + (1 + promo|id),everlane)
+# summary(reg_re)
+```
+
+## Model Analysis
+
+In our analysis, we utilized the generic model and individual model mentioned in class. We used Ranef() function to acquire the deviation of intercepts and promo coefficients for all customers. The deviation of promo coefficients indicate customers' sensitivity to promotion. For individuals with a positive deviation of promo coefficient, we suggest giving them promotions. For individuals with a negative value, we suggest not giving them any promotion. 
+
+We then did the analysis for the top 3 individuals that are the most sensitive to promotion. We should observe the pattern of these three individuals, and focus more on these types of customers in the future to generate more profits. The three individuals are ID 34 (female, age 40, promo coefficient 1.028), ID 343 (male, age 40, 1.147), and ID 148 (female, age 55, 1.415). Next, we used both models to evaluate their responsiveness to different promotional values. The result shows that the average spending is higher in individual model compared to generic  model. Meanwhile, ID 34 has the highest amount spend (average `$`153.33) over four promo codes in individual model, ID 343 has the highest amount spend (average `$`119.95) over four promo codes in generic model.
+
+
+```{r, include=FALSE}
+n = max(everlane$id)
+N = nrow(everlane)
+spendbar = round(mean(everlane$spend),2)
+tpc = round(everlane %>% group_by(id) %>% summarise(n = n()) %>% summarise(mean = mean(n)),1)
+```
+
+
+```{r, include=FALSE}
+# Choose target client types (Top 3)
+Ind_Prom_Eff <- as.data.frame(ranef(reg_re)$id)
+Ind_Prom_Eff <- Ind_Prom_Eff[order(Ind_Prom_Eff$promo),]
+Ind_Prom_Eff[Ind_Prom_Eff$promo >= 1,]
+```
+
+```{r, include=FALSE}
+# Try generic "age" or "gender" - based marketing strategy
+# individual 34
+ind_34_promo_0 = data.frame(age = 40,female = 1, promo = 0)
+pred_34_promo_0 = predict(reg1, ind_34_promo_0)
+
+ind_34_promo_15 = data.frame(age = 40,female = 1, promo = 15)
+pred_34_promo_15 = predict(reg1, ind_34_promo_15)
+
+ind_34_promo_25 = data.frame(age = 40,female = 1, promo = 25)
+pred_34_promo_25 = predict(reg1, ind_34_promo_25)
+
+ind_34_promo_35 = data.frame(age = 40,female = 1, promo = 35)
+pred_34_promo_35 = predict(reg1, ind_34_promo_35)
+
+avg_34 <- sum(pred_34_promo_0, pred_34_promo_15, pred_34_promo_25, pred_34_promo_35)/4
+
+# individual 343
+ind_343_promo_0 = data.frame(age = 40,female = 0, promo = 0)
+pred_343_promo_0 = predict(reg1, ind_343_promo_0)
+
+ind_343_promo_15 = data.frame(age = 40,female = 0, promo = 15)
+pred_343_promo_15 = predict(reg1, ind_343_promo_15)
+
+ind_343_promo_25 = data.frame(age = 40,female = 0, promo = 25)
+pred_343_promo_25 = predict(reg1, ind_343_promo_25)
+
+ind_343_promo_35 = data.frame(age = 40,female = 0, promo = 35)
+pred_343_promo_35 = predict(reg1, ind_343_promo_35)
+
+avg_343 <- sum(pred_343_promo_0, pred_343_promo_15, pred_343_promo_25, pred_34_promo_35)/4
+
+# individual 148
+ind_148_promo_0 = data.frame(age = 55,female = 1, promo = 0)
+pred_148_promo_0 = predict(reg1, ind_148_promo_0)
+
+ind_148_promo_15 = data.frame(age = 55,female = 1, promo = 15)
+pred_148_promo_15 = predict(reg1, ind_148_promo_15)
+
+ind_148_promo_25 = data.frame(age = 55,female = 1, promo = 25)
+pred_148_promo_25 = predict(reg1, ind_148_promo_25)
+
+ind_148_promo_35 = data.frame(age = 55,female = 1, promo = 35)
+pred_148_promo_35 = predict(reg1, ind_148_promo_35)
+
+avg_148 <- sum(pred_148_promo_0, pred_148_promo_15, pred_148_promo_25, pred_148_promo_35)/4
+
+basicModelRev <- cbind(avg_34, avg_343, avg_148)
+basicModelRev
+```
+
+```{r, include=FALSE}
+# Try Strategy of having Individual Level Estimates on the Promotion Coefficient
+# individual 34
+ind_34_promo_0 = data.frame(id = 34, age = 40,female = 1, promo = 0)
+pred_34_promo_0 = predict(reg_re, ind_34_promo_0)
+
+ind_34_promo_15 = data.frame(id = 34, age = 40,female = 1, promo = 15)
+pred_34_promo_15 = predict(reg_re, ind_34_promo_15)
+
+ind_34_promo_25 = data.frame(id = 34, age = 40,female = 1, promo = 25)
+pred_34_promo_25 = predict(reg_re, ind_34_promo_25)
+
+ind_34_promo_35 = data.frame(id = 34, age = 40,female = 1, promo = 35)
+pred_34_promo_35 = predict(reg_re, ind_34_promo_35)
+
+avg_34 <- sum(pred_34_promo_0, pred_34_promo_15, pred_34_promo_25, pred_34_promo_35)/4
+rev_34 <- cbind(pred_34_promo_0, pred_34_promo_15, pred_34_promo_25, pred_34_promo_35)
+
+# individual 343
+ind_343_promo_0 = data.frame(id = 343, age = 40,female = 0, promo = 0)
+pred_343_promo_0 = predict(reg_re, ind_343_promo_0)
+
+ind_343_promo_15 = data.frame(id = 343, age = 40,female = 0, promo = 15)
+pred_343_promo_15 = predict(reg_re, ind_343_promo_15)
+
+ind_343_promo_25 = data.frame(id = 343, age = 40,female = 0, promo = 25)
+pred_343_promo_25 = predict(reg_re, ind_343_promo_25)
+
+ind_343_promo_35 = data.frame(id = 343, age = 40,female = 0, promo = 35)
+pred_343_promo_35 = predict(reg_re, ind_343_promo_35)
+
+avg_343 <- sum(pred_343_promo_0, pred_343_promo_15, pred_343_promo_25, pred_34_promo_35)/4
+rev_343 <- cbind(pred_343_promo_0, pred_343_promo_15, pred_343_promo_25, pred_34_promo_35)
+
+# individual 148
+ind_148_promo_0 = data.frame(id = 148, age = 55,female = 1, promo = 0)
+pred_148_promo_0 = predict(reg_re, ind_148_promo_0)
+
+ind_148_promo_15 = data.frame(id = 148, age = 55,female = 1, promo = 15)
+pred_148_promo_15 = predict(reg_re, ind_148_promo_15)
+
+ind_148_promo_25 = data.frame(id = 148, age = 55,female = 1, promo = 25)
+pred_148_promo_25 = predict(reg_re, ind_148_promo_25)
+
+ind_148_promo_35 = data.frame(id = 148, age = 55,female = 1, promo = 35)
+pred_148_promo_35 = predict(reg_re, ind_148_promo_35)
+
+avg_148 <- sum(pred_148_promo_0, pred_148_promo_15, pred_148_promo_25, pred_148_promo_35)/4
+rev_148<- cbind(pred_148_promo_0, pred_148_promo_15, pred_148_promo_25, pred_148_promo_35)
+  
+indModelRev <- cbind(avg_34, avg_343, avg_148)
+indModelRev
+```
+
+```{r, include=FALSE}
+# Expected Revenue Gains Under strategy of having individual level estimates
+indModelRev
+```
+
+The profit lift of the marketing campaign with individual level estimates is more significant in ID 34 with an increase of average `$`39 per transaction compared with an average of `$`23 per transaction in ID 343 and $19 in ID 148.
+
+```{r, include=FALSE}
+# profit lift of marketing campaign with strategy of having individual level estimates
+RevDiff <- indModelRev - basicModelRev
+RevDiff
+```
+
+The expected revenues are shown below: 
+```{r, echo=FALSE}
+a <- as.data.frame(rbind(rev_34, rev_343, rev_148))
+names(a) <- c("Promo0", "Promo15", "Promo25", "Promo35")
+a <- data.frame(ID = c("ID34", "ID343", "ID148"), a)
+rownames(a) <- NULL
+a
+```
+
+
+We made several assumptions to calculate expected revenue gains:
+
+* Average Cost of Goods Sold is 40% per transaction (based on Everlane website data)
+
+* A $15 / $25 / $35 promotional discount costs Everlane $7.50 / $12.50 / $17.50
+
+The actual profits are shown below:
+```{r, echo=FALSE}
+# Expected Revenue Gains (After Reduce the Cost)
+# Assuming cost of good made is 40% per transaction spend
+# Assuming a $10 promotional discount from Everlane actually cost them $5 based on the typical markup
+# Then a $15 promotional discount from Everlane actually cost them $7.5 based on the typical markup
+# Then a $25 promotional discount from Everlane actually cost them $12.5 based on the typical markup
+# Then a $35 promotional discount from Everlane actually cost them $17.5 based on the typical markup
+
+# Client 34
+rev_34_cost_0 <- rev_34[1] * 0.6
+rev_34_cost_15 <- rev_34[2] * 0.6 - 7.5 #* total_num_transaction
+rev_34_cost_25 <- rev_34[3] * 0.6 - 12.5 #* total_num_transaction
+rev_34_cost_35 <- rev_34[4] * 0.6 - 17.5 #* total_num_transaction
+gain_34 <- cbind(rev_34_cost_0, rev_34_cost_15, rev_34_cost_25, rev_34_cost_35)
+
+# Client 343
+rev_343_cost_0 <- rev_343[1] * 0.6
+rev_343_cost_15 <- rev_343[2] * 0.6 - 7.5 #* total_num_transaction
+rev_343_cost_25 <- rev_343[3] * 0.6 - 12.5 #* total_num_transaction
+rev_343_cost_35 <- rev_343[4] * 0.6 - 17.5 #* total_num_transaction
+gain_343 <- cbind(rev_343_cost_0, rev_343_cost_15, rev_343_cost_25, rev_343_cost_35)
+
+# Client 148
+rev_148_cost_0 <- rev_148[1] * 0.6
+rev_148_cost_15 <- rev_148[2] * 0.6 - 7.5 #* total_num_transaction
+rev_148_cost_25 <- rev_148[3] * 0.6 - 12.5 #* total_num_transaction
+rev_148_cost_35 <- rev_148[4] * 0.6 - 17.5 #* total_num_transaction
+gain_148 <- cbind(rev_148_cost_0, rev_148_cost_15, rev_148_cost_25, rev_148_cost_35)
+
+a <- as.data.frame(rbind(gain_34, gain_343, gain_148))
+names(a) <- c("Promo0", "Promo15", "Promo25", "Promo35")
+a <- data.frame(ID = c("ID34", "ID343", "ID148"), a)
+a
+```
+
+By comparing the expected revenue generated for the two models, marketing campaign based on individual level model is more profitable (`$`19-$39 more profit per transaction) versus mass-marketing strategies (base model). Having individual level estimates would give the company a chance to figure out the pattern of the customers who are more sensitive to promotions and tend to spend more. For instance, by applying promotion to the top three types of customers in our sample, the company could maximize their profits. Additionally, if the cost of promo 35 is not prohibitive, we would suggest making that promotion more widely available. 
+
+Furthermore, we suggest looking further into patterns in the dates, including holidays and seasonality, to seek new ways of improving profitability. 
